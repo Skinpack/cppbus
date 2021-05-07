@@ -260,19 +260,23 @@ namespace cppbus {
         /*
         * subscribe() overloads:
         * 1. subscribe(F && functor, const SubID & subId):
-        *   Accepts an object that has non-overloaded operator() accepting
-        *   one public child of Event and returning void.
+        *   Accepts an object that has non-overloaded operator()
+        *   of `(const EventType &) [const [&]] -> void`
+        *   or `(EventType) [const [&]] -> void` type.
+        *   EventType is automagically deduced.
         *   Copies functor.
         *
-        * 2. subscribe(void(*fnPtr)(ArgType)), const SubID & subId:
-        *   Accepts a function pointer.
+        * 2. subscribe(void(*fnPtr)(ArgType), const SubID & subId):
+        *   Accepts a function pointer with the same signature as in (1).
         *
         * 3. subscribe(ThisPtrType thisPtr, MethodType methodPtr, const SubID & subId):
-        *   Accepts a pointer to `this` and a method of a decltype(*this) class.
-        *
+        *   Accepts a pointer to `this` and a pointer to a method of decltype(*this) class.
+        *   The method must have the same signature as in (1).
+        * 
         * 4. subscribe<EventType>(GenericCallback callback, const SubID & subId)
         *   An 'old-style' overload. Accepts EventType as a template parameter and
-        *   a generic callback of a form (const Event &) -> void.
+        *   a callback of `std::function<void(const Event &)>` aka `GenericCallback`
+        *   type.
         *   Copies callback.
         */
 
@@ -308,8 +312,7 @@ namespace cppbus {
                 } else {
                     func(dynamic_cast<const FunctorArgBase &>(ev));
                 }
-            },
-                subId);
+            }, subId);
         }
 
         // 2
@@ -333,15 +336,15 @@ namespace cppbus {
                 } else {
                     fnPtr(dynamic_cast<const ArgBase &>(ev));
                 }
-                                   }, subId);
+            }, subId);
         }
 
         // 3
         template<typename ThisPtrType, typename MethodType>
         auto subscribe(ThisPtrType thisPtr, MethodType methodPtr, const SubID & subId)
             -> std::enable_if_t<
-            detail::is_method_ptr_v<MethodType> &&
-            std::is_pointer_v<ThisPtrType>
+                detail::is_method_ptr_v<MethodType> &&
+                std::is_pointer_v<ThisPtrType>
             >
         {
             assert(subId != SubID::invalid());
@@ -372,7 +375,7 @@ namespace cppbus {
                 } else {
                     std::invoke(methodPtr, thisPtr, dynamic_cast<const ArgBase &>(ev));
                 }
-                                   }, subId);
+            }, subId);
         }
 
         // 4
@@ -400,20 +403,25 @@ namespace cppbus {
         {
             static_assert(detail::is_public_base_of_v<Event, EventType>,
                           "EventType must be a public subtype of Event");
-            return haveReceiversImpl(Event::getStaticIndex<EventType>());
+            return haveReceiversImpl(getStaticIndex<EventType>());
         }
 
+        // Publishes an event to all appropriate subscribers
         void publish(const Event & ev) const
         {
-            publishImpl(Event::getRuntimeIndex(ev), ev);
+            publishImpl(getRuntimeIndex(ev), ev);
         }
 
+        // Tries to publish EventType(args...) event.
+        // If there are no subscribers that could accept such event,
+        // does nothing.
+        // Returns true if the event was constructed, false otherwise.
         template<typename EventType, typename... Args>
         bool publishEmplace(Args &&... args) const
         {
             static_assert(detail::is_public_base_of_v<Event, EventType>,
                           "EventType must be a public subtype of Event");
-            auto typeIdx = Event::getStaticIndex<EventType>();
+            auto typeIdx = getStaticIndex<EventType>();
 
             std::optional<EventType> eventOpt{};  // Initially empty
             publishEmplaceImpl<EventType>(typeIdx, eventOpt, std::forward<Args>(args)...);
@@ -423,12 +431,23 @@ namespace cppbus {
 
     private:
         template<typename EventType>
+        static std::type_index getStaticIndex() noexcept
+        {
+            return std::type_index(typeid(EventType));
+        }
+
+        static std::type_index getRuntimeIndex(const Event & ev) noexcept
+        {
+            return std::type_index(typeid(ev));
+        }
+
+        template<typename EventType>
         void subscribeImpl(GenericCallback callback, const SubID & subId)
         {
             static_assert(detail::is_public_base_of_v<Event, EventType>,
                           "EventType must be a public subtype of Event");
 
-            callbacks[Event::getStaticIndex<EventType>()].insert_or_assign(subId, std::move(callback));
+            callbacks[getStaticIndex<EventType>()].insert_or_assign(subId, std::move(callback));
         }
 
         bool haveReceiversImpl(const std::type_index & typeIdx) const
@@ -480,6 +499,7 @@ namespace cppbus {
                 if (!evOpt.has_value()) {
                     publishEmplaceImpl<EventType>(it->second, evOpt, std::forward<Args>(args)...);
                 } else {
+                    // The event was constructed, don't bother to check for has_value() anymore
                     publishImpl(it->second, evOpt.value());
                 }
             }

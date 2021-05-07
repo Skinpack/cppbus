@@ -18,17 +18,6 @@ namespace cppbus {
             return typeid(*this).name();
         }
 
-        template<typename EventType>
-        static std::type_index getStaticIndex()
-        {
-            return std::type_index(typeid(EventType));
-        }
-
-        static std::type_index getRuntimeIndex(const Event & ev)
-        {
-            return std::type_index(typeid(ev));
-        }
-
     protected:
         Event() = default;  // Do not allow direct creation of this base class
     };
