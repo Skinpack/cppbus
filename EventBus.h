@@ -252,6 +252,12 @@ namespace cppbus {
         EventBus() = default;
         ~EventBus() = default;
 
+        // Get a unique subscriber ID.
+        // Every subscriber that use 'stateful' callbacks
+        // (lambdas with captured references, bound methods, etc.)
+        // must call EventBus::unsubscribe(ID) before the subscriber is destructed.
+        // This is better done via deriving the EventSubscriber class which
+        // would automatically unsubscribe in it's destructor.
         static SubID allocateSubID() noexcept
         {
             return SubID::createUnique();

@@ -24,6 +24,8 @@ namespace cppbus {
             mainBusUnsubscribe();
         }
 
+        // mainBusSubscribe() is an 'alias' for EventBus::subscribe()
+        // without the subId parameter.
         template<typename EventType>
         void mainBusSubscribe(EventBus::GenericCallback callback)
         {
